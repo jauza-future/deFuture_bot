@@ -1,9 +1,11 @@
+from fastapi import FastAPI, Request
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-import sqlite3
 import os
+import sqlite3
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
 conn = sqlite3.connect('referral.db', check_same_thread=False)
 c = conn.cursor()
@@ -15,6 +17,9 @@ CREATE TABLE IF NOT EXISTS users (
 )
 ''')
 conn.commit()
+
+app = FastAPI()
+bot_app = ApplicationBuilder().token(BOT_TOKEN).build()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -57,15 +62,16 @@ async def referrals(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(msg)
 
-async def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+bot_app.add_handler(CommandHandler("start", start))
+bot_app.add_handler(CommandHandler("referrals", referrals))
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("referrals", referrals))
+@app.post("/")
+async def telegram_webhook(req: Request):
+    data = await req.json()
+    update = Update.de_json(data, bot_app.bot)
+    await bot_app.process_update(update)
+    return {"ok": True}
 
-    print("Bot sudah berjalan. Tekan Ctrl+C untuk berhenti.")
-    await app.run_polling()
-
-if __name__ == '__main__':
-    import asyncio
-    asyncio.run(main())
+@app.on_event("startup")
+async def on_startup():
+    await bot_app.bot.set_webhook(WEBHOOK_URL)
